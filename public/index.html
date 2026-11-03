@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>고블린 던전 호텔</title>
+<link rel="stylesheet" href="style.css">
+<!-- Three.js를 CDN에서 불러온다 (설치 필요 없음) -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+  <!-- 3D 화면이 그려지는 곳 -->
+  <div id="game-container"></div>
+
+  <!-- 3D 화면 위에 겹쳐 보이는 UI -->
+  <div id="hud">
+    <!-- 위쪽: 골드 / 별점 / 날짜 -->
+    <header id="topbar" class="panel">
+      <h1>🏰 고블린 던전 호텔</h1>
+      <div class="stats">
+        <span class="stat" title="보유 골드">💰 <b id="gold-text">0</b></span>
+        <span class="stat" id="star-stat" title="호텔 별점">⭐ <b id="star-text">★★★☆☆</b></span>
+        <span class="stat" title="현재 날짜">📅 <b id="day-text">1</b>일차
+          <span id="day-bar"><span id="day-bar-fill"></span></span>
+        </span>
+      </div>
+      <div class="controls">
+        <button class="ctrl-btn" id="pause-btn" title="일시정지 (스페이스바)">⏸</button>
+        <button class="ctrl-btn" id="speed-btn" title="게임 속도">x1</button>
+      </div>
+    </header>
+
+    <!-- 오른쪽: 현재 손님 목록 -->
+    <aside id="guest-panel" class="panel">
+      <h2>🧳 현재 손님 <span id="guest-count"></span>
+        <button id="panel-toggle" class="mini-btn" title="접기/펴기">−</button>
+      </h2>
+      <div id="panel-body">
+        <div id="guest-list"></div>
+        <div class="legend">
+          <span><i class="dot" style="background:#c8352e"></i>전사: 스릴 좋아함</span>
+          <span><i class="dot" style="background:#3a63d8"></i>마법사: 편안함 좋아함</span>
+          <span><i class="dot" style="background:#7a7a84"></i>도적: 아무거나 무난</span>
+        </div>
+        <h2>📜 호텔 소식</h2>
+        <div id="log"></div>
+      </div>
+    </aside>
+
+    <!-- 아래쪽: 건설 메뉴 -->
+    <footer id="build-menu" class="panel">
+      <div id="build-buttons"></div>
+      <div id="build-hint">방을 고르고 빈 칸을 클릭하면 설치 · 설치된 방을 클릭하면 철거(절반 환불) · 드래그로 회전, 휠로 확대/축소</div>
+    </footer>
+  </div>
+
+  <!-- 마우스를 올린 칸 안내 -->
+  <div id="tooltip"></div>
+  <!-- 고블린 사장 말풍선 -->
+  <div id="boss-bubble"></div>
+  <!-- 알림 -->
+  <div id="toast"></div>
+  <!-- 확인 창 -->
+  <div id="modal-bg">
+    <div id="modal">
+      <p id="modal-text"></p>
+      <div class="row">
+        <button id="modal-cancel">취소</button>
+        <button id="modal-ok">확인</button>
+      </div>
+    </div>
+  </div>
+  <!-- 로딩 화면 -->
+  <div id="loading">
+    <div class="goblin">🧌</div>
+    <div id="loading-text">던전을 파는 중...</div>
+  </div>
+
+  <script type="module" src="game.js"></script>
+  <script>
+    // 3D 라이브러리를 불러오지 못하면(인터넷 문제 등) 안내
+    setTimeout(() => {
+      const l = document.getElementById('loading');
+      if (l && !l.classList.contains('hide')) {
+        document.getElementById('loading-text').textContent =
+          '게임을 불러오지 못했어요. 인터넷 연결을 확인하고 새로고침 해주세요.';
+      }
+    }, 15000);
+  </script>
+</body>
+</html>
