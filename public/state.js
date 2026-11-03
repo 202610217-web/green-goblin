@@ -16,16 +16,24 @@ export function createInitialGameState() {
     stars: CONFIG.START_STARS,                // 호텔 별점 1~5
     ratings: [],                              // 최근 손님 만족도 기록
     unlockedFloors: CONFIG.START_UNLOCKED_FLOORS,
-    // rooms[층][칸] = null(빈칸) 또는 { type: 'slime' }
+    // rooms[층][칸] = null(빈칸) 또는 { type: 'slime', dirt: 0, realMode: false, broken: false }
+    //   dirt: 더러움 0~100, realMode: 함정 진짜 모드, broken: 습격으로 망가짐
     rooms: Array.from({ length: CONFIG.FLOORS }, () => Array(CONFIG.COLS).fill(null)),
     // 현재 호텔에 있는 손님들 (위치/경로도 순수 숫자로만 보관)
     guests: [],
     nextGuestId: 1,
     spawnTimer: CONFIG.FIRST_GUEST_DELAY,     // 다음 손님이 오기까지 남은 시간
+    // 고용한 직원들 { id, role, pos, path, task, timer ... }
+    staff: [],
+    nextStaffId: 1,
+    // 용사 습격 진행 상황 (없으면 null)
+    raid: null,
     stats: {                                  // 통계 (나중에 결과 화면 등에 활용)
       totalGuests: 0,
       angryGuests: 0,
       totalEarned: 0,
+      raidsWon: 0,
+      raidsLost: 0,
     },
   };
 }

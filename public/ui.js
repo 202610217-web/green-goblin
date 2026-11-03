@@ -3,7 +3,7 @@
    (상태바, 건설 메뉴, 손님 목록, 알림, 확인 창, 말풍선, 안내 툴팁)
    게임 규칙은 모르고, game.js가 시키는 대로 그리기만 한다.
    ================================================================= */
-import { CONFIG, ROOM_TYPES, GUEST_TYPES } from './config.js';
+import { CONFIG, ROOM_TYPES, GUEST_TYPES, GUEST_TIERS, STAFF_TYPES } from './config.js';
 
 const $ = (id) => document.getElementById(id);
 let handlers = {};
@@ -36,7 +36,8 @@ export function roomDesc(rt) {
 
 /* =================================================================
    초기화: 버튼에 이벤트 연결
-   handlers = { onSelectRoom(key), onTogglePause(), onChangeSpeed() }
+   handlers = { onSelectRoom(key), onTogglePause(), onChangeSpeed(),
+                onHire(role), onFire(role), onAllTrapsReal() }
    ================================================================= */
 export function initUI(h) {
   handlers = h;
@@ -52,12 +53,24 @@ export function initUI(h) {
     $('guest-panel').classList.add('collapsed');
     $('panel-toggle').textContent = '+';
   }
-  $('modal-ok').addEventListener('click', () => {
-    const cb = modalCallback;
-    closeModal();
-    if (cb) cb();
+  // 아래 메뉴 탭 전환 (건설 / 직원 고용)
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b === btn));
+      $('tab-build').hidden = btn.dataset.tab !== 'build';
+      $('tab-hire').hidden = btn.dataset.tab !== 'hire';
+    });
   });
-  $('modal-cancel').addEventListener('click', closeModal);
+  // 고용/해고 버튼 (카드가 다시 그려져도 동작하도록 부모에서 한 번에 처리)
+  $('hire-cards').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-role]');
+    if (!btn || btn.disabled) return;
+    if (btn.dataset.action === 'hire') handlers.onHire(btn.dataset.role);
+    else handlers.onFire(btn.dataset.role);
+  });
+  $('raid-banner').addEventListener('click', (e) => {
+    if (e.target.closest('#all-traps-btn')) handlers.onAllTrapsReal();
+  });
   $('modal-bg').addEventListener('click', (e) => { if (e.target.id === 'modal-bg') closeModal(); });
 }
 
@@ -142,9 +155,11 @@ export function renderGuestList(state) {
     const sat = Math.round(g.satisfaction);
     const where = g.state === 'walking' ? '🚶 방으로 가는 중' : `🛏️ ${floorName(g.floor)} ${roomName}`;
     const color = '#' + gt.color.toString(16).padStart(6, '0');
+    const tier = GUEST_TIERS[g.tier || 0];
+    const tierLabel = tier.badge ? `${tier.badge}${tier.name} ` : '';
     return `<div class="g-row" style="border-left-color:${color}">
         <div class="g-top">
-          <span class="g-name">${gt.emoji} ${gt.name} ${g.name}</span>
+          <span class="g-name">${gt.emoji} ${tierLabel}${gt.name} ${g.name}</span>
           <span>${moodEmoji(sat)} ${sat}</span>
         </div>
         <div class="g-room">${where} · 취향: ${gt.likes}</div>
@@ -175,16 +190,35 @@ export function showToast(msg, type = 'warn') {
 }
 
 /* ---------------- 확인 창 ---------------- */
-let modalCallback = null;
-export function confirmModal(text, onOk, okLabel = '확인') {
+/* 버튼 여러 개짜리 창
+   buttons = [{ label, style: 'danger'|'ok'|'warn'|'normal', onClick, disabled }]
+   어떤 버튼이든 누르면 창이 닫히고 onClick이 실행된다 */
+export function showModal(text, buttons) {
   $('modal-text').textContent = text;
-  $('modal-ok').textContent = okLabel;
+  const row = $('modal-buttons');
+  row.innerHTML = '';
+  for (const b of buttons) {
+    const el = document.createElement('button');
+    el.textContent = b.label;
+    el.className = b.style || 'normal';
+    el.disabled = !!b.disabled;
+    el.addEventListener('click', () => {
+      closeModal();
+      if (b.onClick) b.onClick();
+    });
+    row.appendChild(el);
+  }
   $('modal-bg').classList.add('show');
-  modalCallback = onOk;
 }
-function closeModal() {
+// 예/아니오 확인 창
+export function confirmModal(text, onOk, okLabel = '확인', okStyle = 'danger') {
+  showModal(text, [
+    { label: '취소', style: 'normal' },
+    { label: okLabel, style: okStyle, onClick: onOk },
+  ]);
+}
+export function closeModal() {
   $('modal-bg').classList.remove('show');
-  modalCallback = null;
 }
 export function isModalOpen() {
   return $('modal-bg').classList.contains('show');
@@ -221,6 +255,82 @@ export function placeBossBubble(pos) {
     return;
   }
   b.style.display = 'block';
-  b.style.left = pos.x + 'px';
+  // 말풍선이 화면 밖으로 나가지 않게 좌우 위치를 제한
+  const half = b.offsetWidth / 2;
+  b.style.left = Math.max(half + 8, Math.min(window.innerWidth - half - 8, pos.x)) + 'px';
   b.style.top = pos.y + 'px';
+}
+
+/* =================================================================
+   2-2. 직원 고용 메뉴
+   ================================================================= */
+export function renderHirePanel(state) {
+  const counts = {};
+  for (const m of state.staff) if (!m.leaving) counts[m.role] = (counts[m.role] || 0) + 1;
+  let totalSalary = 0;
+  const html = Object.entries(STAFF_TYPES).map(([role, st]) => {
+    const n = counts[role] || 0;
+    totalSalary += n * st.salary;
+    const full = n >= CONFIG.STAFF_MAX_PER_TYPE;
+    const poor = state.gold < st.hireCost;
+    return `<div class="hire-card">
+        <div class="hire-top">
+          <span class="h-emoji">${st.emoji}</span>
+          <span class="h-name">${st.name}</span>
+          <span class="h-count">${n}/${CONFIG.STAFF_MAX_PER_TYPE}명</span>
+        </div>
+        <div class="h-desc">${st.desc}</div>
+        <div class="h-pay">고용비 ${st.hireCost}G · 월급 ${st.salary}G/일</div>
+        <div class="hire-actions">
+          <button class="hire" data-role="${role}" data-action="hire" ${full || poor ? 'disabled' : ''}
+            title="${full ? '최대 인원이에요' : poor ? '골드가 부족해요' : '고용하기'}">＋ 고용</button>
+          <button class="fire" data-role="${role}" data-action="fire" ${n === 0 ? 'disabled' : ''} title="한 명 내보내기">해고</button>
+        </div>
+      </div>`;
+  }).join('');
+  // 내용이 바뀌었을 때만 다시 그린다 (누르는 도중에 버튼이 바뀌어 클릭이 씹히지 않게)
+  const cards = $('hire-cards');
+  if (cards.dataset.html !== html) {
+    cards.innerHTML = html;
+    cards.dataset.html = html;
+  }
+  $('hire-summary').textContent = `하루 월급 합계: ${totalSalary}골드 (하루가 지날 때 지급 · 못 받은 직원은 떠나요)`;
+}
+
+/* =================================================================
+   2-3. 용사 습격 경고
+   ================================================================= */
+// info = null(숨김) 또는 { phase, timeLeft, chance, traps, realTraps, guards }
+export function updateRaidBanner(info) {
+  const banner = $('raid-banner');
+  const flash = $('raid-flash');
+  document.body.classList.toggle('raid-active', !!info);   // 알림이 경고 띠와 겹치지 않게
+  if (!info) {
+    banner.classList.remove('show');
+    flash.classList.remove('on');
+    return;
+  }
+  banner.classList.add('show');
+  flash.classList.toggle('on', info.phase === 'warning');
+  const pct = Math.round(info.chance * 100);
+  const chance = `<span class="r-chance">방어 성공 확률 ${pct}%</span>`;
+  const help = `함정(진짜 모드) ${info.realTraps}/${info.traps}개 · 경비 ${info.guards}명`;
+  let html;
+  if (info.phase === 'warning') {
+    html = `<span class="r-icon">⚔️</span>
+      <span class="r-text"><b>용사 습격 경고! ${Math.ceil(info.timeLeft)}초 후 도착!</b><br>${chance} · ${help}</span>`;
+    if (info.traps > info.realTraps) html += '<button id="all-traps-btn">🪨 함정 전부 진짜 모드</button>';
+  } else if (info.phase === 'attack' || info.phase === 'fight') {
+    html = `<span class="r-icon">🗡️</span>
+      <span class="r-text"><b>용사가 쳐들어왔다!</b><br>${chance} · ${help}</span>`;
+  } else {
+    html = `<span class="r-icon">${info.success ? '🎉' : '💸'}</span>
+      <span class="r-text"><b>${info.success ? '방어 성공! 용사가 도망간다!' : '방어 실패… 용사가 보물을 들고 간다!'}</b><br>
+      함정 모드를 끄는 것도 잊지 마세요 (손님이 싫어해요)</span>`;
+  }
+  // 같은 내용이면 다시 그리지 않음 (버튼이 깜빡이지 않게)
+  if (banner.dataset.html !== html) {
+    banner.innerHTML = html;
+    banner.dataset.html = html;
+  }
 }

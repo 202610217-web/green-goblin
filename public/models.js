@@ -294,21 +294,35 @@ function buildBoulderRoom() {
   r1.rotation.z = -0.6;
   const r2 = add(g, new THREE.BoxGeometry(0.6, 0.12, 1.1), ramp, 1.75, 0.25, -1.0);
   r2.rotation.z = 0.6;
-  // 바위 (울퉁불퉁한 회색 구)
-  const boulder = add(g, new THREE.DodecahedronGeometry(0.62, 1), mat(0x8a8580, { flatShading: true }), 0, 0.62, -1.0);
-  // 경고 표지판
-  add(g, new THREE.CylinderGeometry(0.04, 0.04, 1.0, 6), rail, 1.6, 0.5, 0.5);
-  const sign = add(g, new THREE.BoxGeometry(0.5, 0.4, 0.05), mat(0xffcc00), 1.6, 1.05, 0.5);
+  // 바위 (울퉁불퉁한 회색 구) — 진짜 모드에서 색을 바꾸므로 재질을 따로 만든다
+  const boulderMat = new THREE.MeshStandardMaterial({ color: 0x8a8580, roughness: 0.8, flatShading: true, emissive: 0x000000 });
+  const boulder = add(g, new THREE.DodecahedronGeometry(0.62, 1), boulderMat, 0, 0.62, -1.0);
+  // 경고 표지판 (뒤쪽 구석)
+  add(g, new THREE.CylinderGeometry(0.04, 0.04, 1.0, 6), rail, 1.7, 0.5, -1.8);
+  const sign = add(g, new THREE.BoxGeometry(0.5, 0.4, 0.05), mat(0xffcc00), 1.7, 1.05, -1.75);
   sign.rotation.z = Math.PI / 4;
-  // 바닥 가시 장식
+  // 바닥 가시 장식 (진짜 모드에서 쑥 올라온다)
+  const spikes = new THREE.Group();
+  g.add(spikes);
   const spike = mat(0x6a6a72, { metalness: 0.4 });
-  for (let i = 0; i < 4; i++) add(g, new THREE.ConeGeometry(0.08, 0.3, 6), spike, -1.6 + i * 0.35, 0.15, 0.4);
-  g.userData.update = (t) => {
-    // 좌우로 굴러다님 (이동 거리만큼 회전)
-    const x = Math.sin(t * 1.4) * 1.2;
+  for (let i = 0; i < 4; i++) add(spikes, new THREE.ConeGeometry(0.08, 0.3, 6), spike, -1.6 + i * 0.35, 0.15, 0.4);
+  let phase = 0;
+  let realMode = false;
+  g.userData.update = (t, dt) => {
+    // 좌우로 굴러다님 (진짜 모드에서는 2배 빠르게)
+    phase += dt * (realMode ? 2.8 : 1.4);
+    const x = Math.sin(phase) * 1.2;
     boulder.position.x = x;
     boulder.position.y = 0.62 + Math.max(0, Math.abs(x) - 1.0) * 0.6;   // 끝에서는 경사로를 살짝 오름
     boulder.rotation.z = -x / 0.62;
+    if (realMode) boulderMat.emissiveIntensity = 0.6 + Math.sin(t * 8) * 0.3;
+  };
+  // 진짜 모드(진짜 함정) 켜기/끄기: 바위가 붉게 달아오르고 가시가 커진다
+  g.userData.setRealMode = (on) => {
+    realMode = on;
+    boulderMat.color.setHex(on ? 0x8a3a30 : 0x8a8580);
+    boulderMat.emissive.setHex(on ? 0xff2a10 : 0x000000);
+    spikes.scale.set(1, on ? 2.5 : 1, 1);
   };
   return g;
 }
@@ -421,6 +435,70 @@ export function createGoblin({ scale = 1, outfit = 0x5b2d82, boss = false } = {}
 
   g.scale.setScalar(scale);
   g.userData.parts = { legL, legR, armL, armR, head };
+  return g;
+}
+
+/* =================================================================
+   직원 고블린: 역할마다 옷 색과 도구가 다르다
+   cleaner(청소): 파란 앞치마 + 대걸레 / cook(요리): 흰 요리사 모자 + 국자
+   guard(경비): 철 투구 + 창
+   ================================================================= */
+export function createStaffGoblin(role, outfit) {
+  const g = createGoblin({ outfit, scale: 0.95 });
+  const { head, armR } = g.userData.parts;
+  if (role === 'cleaner') {
+    const mop = new THREE.Group();
+    add(mop, new THREE.CylinderGeometry(0.025, 0.025, 1.0, 6), mat(0x8a6a3a), 0, -0.1, 0);
+    add(mop, new THREE.CylinderGeometry(0.12, 0.08, 0.15, 8), mat(0xdcdcdc), 0, -0.62, 0);
+    mop.position.set(0, -0.38, 0.12);
+    armR.add(mop);
+    add(head, new THREE.SphereGeometry(0.31, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2.5), mat(0x2a6ad0), 0, 0.05, 0); // 두건
+  } else if (role === 'cook') {
+    add(head, new THREE.CylinderGeometry(0.2, 0.17, 0.3, 12), mat(0xffffff), 0, 0.38, 0);
+    add(head, new THREE.SphereGeometry(0.24, 12, 8), mat(0xffffff), 0, 0.55, 0).scale.set(1, 0.6, 1);
+    const ladle = new THREE.Group();
+    add(ladle, new THREE.CylinderGeometry(0.02, 0.02, 0.5, 6), mat(0x9a9aa2, { metalness: 0.6 }), 0, 0, 0);
+    add(ladle, new THREE.SphereGeometry(0.07, 8, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), mat(0x9a9aa2, { metalness: 0.6 }), 0, -0.25, 0);
+    ladle.position.set(0, -0.4, 0.1);
+    armR.add(ladle);
+  } else if (role === 'guard') {
+    const steel = mat(0x9a9aa8, { metalness: 0.7, roughness: 0.35 });
+    add(head, new THREE.SphereGeometry(0.32, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), steel, 0, 0.04, 0);
+    add(head, new THREE.ConeGeometry(0.05, 0.18, 6), steel, 0, 0.38, 0);
+    const spear = new THREE.Group();
+    add(spear, new THREE.CylinderGeometry(0.025, 0.025, 1.5, 6), mat(0x6a4a2a), 0, 0.3, 0);
+    add(spear, new THREE.ConeGeometry(0.06, 0.22, 6), steel, 0, 1.15, 0);
+    spear.position.set(0, -0.38, 0.1);
+    armR.add(spear);
+  }
+  return g;
+}
+
+/* =================================================================
+   용사: 금색으로 빛나는 갑옷 전사 + 망토 + 후광
+   ================================================================= */
+export function createHero() {
+  const gold = new THREE.MeshStandardMaterial({ color: 0xffd257, emissive: 0xb07a00, emissiveIntensity: 0.9, metalness: 0.7, roughness: 0.3 });
+  const g = createAdventurer('warrior', 0xffd257);
+  g.traverse((o) => {
+    // 몸통/팔 색 재질을 금빛 재질로 바꿔서 번쩍이게
+    if (o.isMesh && o.material.color && o.material.color.getHex() === 0xffd257) o.material = gold;
+  });
+  // 빨간 망토
+  const cape = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.75, 0.04), mat(0xb01a2a));
+  cape.position.set(0, 0.75, -0.25);
+  cape.rotation.x = 0.15;
+  g.add(cape);
+  // 후광 (뒤에서 빛나는 원)
+  const halo = new THREE.Mesh(
+    new THREE.RingGeometry(0.3, 0.42, 24),
+    new THREE.MeshBasicMaterial({ color: 0xfff0a0, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
+  );
+  halo.position.set(0, 1.62, 0);
+  halo.rotation.x = Math.PI / 2;
+  g.add(halo);
+  g.scale.setScalar(1.25);
+  g.userData.halo = halo;
   return g;
 }
 

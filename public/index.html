@@ -54,13 +54,28 @@
       </div>
     </aside>
 
-    <!-- 아래쪽: 건설 메뉴 -->
+    <!-- 습격 경고 띠 (2-3) -->
+    <div id="raid-banner" class="panel"></div>
+
+    <!-- 아래쪽: 건설 메뉴 / 직원 고용 메뉴 -->
     <footer id="build-menu" class="panel">
-      <div id="build-buttons"></div>
-      <div id="build-hint">방을 고르고 빈 칸을 클릭하면 설치 · 설치된 방을 클릭하면 철거(절반 환불) · 드래그로 회전, 휠로 확대/축소</div>
+      <div id="menu-tabs">
+        <button class="tab-btn active" data-tab="build">🔨 건설</button>
+        <button class="tab-btn" data-tab="hire">👷 직원 고용</button>
+      </div>
+      <div id="tab-build">
+        <div id="build-buttons"></div>
+        <div id="build-hint">방을 고르고 빈 칸을 클릭하면 설치 · 설치된 방을 클릭하면 관리(철거·함정 모드·수리) · 잠긴 층을 클릭하면 해금 · 드래그로 회전, 휠로 확대/축소</div>
+      </div>
+      <div id="tab-hire" hidden>
+        <div id="hire-cards"></div>
+        <div id="hire-summary"></div>
+      </div>
     </footer>
   </div>
 
+  <!-- 습격 경고 때 화면이 붉게 깜빡이는 막 -->
+  <div id="raid-flash"></div>
   <!-- 마우스를 올린 칸 안내 -->
   <div id="tooltip"></div>
   <!-- 고블린 사장 말풍선 -->
@@ -71,10 +86,7 @@
   <div id="modal-bg">
     <div id="modal">
       <p id="modal-text"></p>
-      <div class="row">
-        <button id="modal-cancel">취소</button>
-        <button id="modal-ok">확인</button>
-      </div>
+      <div class="row" id="modal-buttons"></div>
     </div>
   </div>
   <!-- 로딩 화면 -->

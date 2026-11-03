@@ -233,6 +233,7 @@ html, body {
   text-align: center;
 }
 #toast.show { opacity: 1; }
+body.raid-active #toast { top: 150px; }
 #toast.info { background: #1e3a24; border-color: var(--green); color: #e1ffe4; }
 
 /* ---------------- 확인 창 ---------------- */
@@ -265,8 +266,12 @@ html, body {
   font-weight: bold;
   cursor: pointer;
 }
-#modal-ok { background: var(--danger); color: #fff; }
-#modal-cancel { background: var(--panel-2); color: var(--text); }
+#modal .row { flex-wrap: wrap; }
+#modal button.danger { background: var(--danger); color: #fff; }
+#modal button.ok { background: var(--green-dark); color: #fff; }
+#modal button.warn { background: #b4561a; color: #fff; }
+#modal button.normal { background: var(--panel-2); color: var(--text); }
+#modal button:disabled { opacity: .45; cursor: not-allowed; }
 
 /* ---------------- 로딩 화면 ---------------- */
 #loading {
@@ -286,6 +291,96 @@ html, body {
 #loading .goblin { font-size: 64px; animation: bounce 1s infinite; }
 @keyframes bounce { 50% { transform: translateY(-12px); } }
 
+/* ---------------- 메뉴 탭 (건설 / 직원 고용) ---------------- */
+#menu-tabs { display: flex; gap: 6px; margin-bottom: 6px; }
+.tab-btn {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 3px 12px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.tab-btn.active { color: var(--green); border-color: var(--green); background: rgba(111, 220, 111, .1); }
+
+/* ---------------- 직원 고용 카드 ---------------- */
+#hire-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.hire-card {
+  background: var(--panel-2);
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+.hire-top { display: flex; align-items: center; gap: 6px; }
+.hire-top .h-emoji { font-size: 22px; }
+.hire-top .h-name { font-weight: bold; }
+.hire-top .h-count { margin-left: auto; color: var(--green); font-weight: bold; }
+.hire-card .h-desc { color: var(--muted); font-size: 11px; }
+.hire-card .h-pay { color: var(--gold); font-size: 11px; }
+.hire-actions { display: flex; gap: 4px; margin-top: 3px; }
+.hire-actions button {
+  flex: 1;
+  border: none;
+  border-radius: 6px;
+  padding: 4px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.hire-actions .hire { background: var(--green-dark); color: #fff; }
+.hire-actions .fire { background: #3a2a4a; color: var(--text); flex: 0 0 auto; padding: 4px 8px; }
+.hire-actions button:disabled { opacity: .4; cursor: not-allowed; }
+#hire-summary { font-size: 11px; color: var(--muted); margin-top: 6px; text-align: center; }
+
+/* ---------------- 용사 습격 경고 ---------------- */
+#raid-banner {
+  position: absolute;
+  top: 74px; left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, calc(100% - 20px));
+  padding: 8px 12px;
+  border-color: var(--danger);
+  background: rgba(70, 12, 20, .92);
+  display: none;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+#raid-banner.show { display: flex; }
+#raid-banner .r-icon { font-size: 26px; animation: bounce .8s infinite; }
+#raid-banner .r-text { flex: 1; }
+#raid-banner b { color: #ffd2d2; }
+#raid-banner .r-chance { color: var(--gold); font-weight: bold; }
+#raid-banner button {
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: bold;
+  background: var(--danger);
+  color: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#raid-flash {
+  position: fixed; inset: 0;
+  pointer-events: none;
+  z-index: 8;
+  opacity: 0;
+  box-shadow: inset 0 0 160px 40px rgba(255, 20, 30, .75);
+  background: rgba(255, 0, 0, .12);
+}
+#raid-flash.on { animation: redFlash 1s ease-in-out infinite; }
+@keyframes redFlash { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
+
 /* ---------------- 좁은 화면(모바일) ---------------- */
 @media (max-width: 760px) {
   #topbar { flex-wrap: wrap; gap: 6px; padding: 6px 8px; }
@@ -295,5 +390,18 @@ html, body {
   #build-buttons { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
   .b-name, .b-desc, #build-hint { display: none; }
   .b-emoji { font-size: 22px; }
-  #guest-panel { top: auto; bottom: 90px; right: 10px; width: 220px; max-height: 40%; }
+  #guest-panel { top: auto; bottom: 120px; right: 10px; width: 220px; max-height: 40%; }
+  /* 직원 카드: 3칸으로 작게 (이름 대신 아이콘만) */
+  #hire-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+  .hire-card { padding: 4px 5px; }
+  .hire-card .h-desc, .hire-top .h-name { display: none; }
+  .hire-card .h-pay { font-size: 10px; }
+  .hire-actions .fire { padding: 4px 5px; }
+  #hire-summary { display: none; }
+  /* 습격 경고: 작게 */
+  #raid-banner { top: 100px; padding: 6px 8px; font-size: 12px; gap: 6px; }
+  #raid-banner .r-icon { display: none; }
+  #raid-banner button { padding: 5px 7px; font-size: 11px; }
+  #toast { font-size: 13px; padding: 8px 12px; }
+  body.raid-active #toast { top: 45%; }
 }

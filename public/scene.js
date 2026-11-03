@@ -12,6 +12,7 @@ import { CONFIG, LAYOUT, GRAPHICS, GUEST_TYPES } from './config.js';
 import {
   mat, buildRoomModel, createGoblin, createAdventurer, animateCharacter,
   makeEmojiSprite, makeTextSprite, emojiTexture, makeBrickTexture,
+  createStaffGoblin, createHero,
 } from './models.js';
 
 /* ---------------- 좌표 계산 ----------------
@@ -25,7 +26,7 @@ const RIGHT = TOTAL_W / 2;
 const BACK_Z = -CELL_D / 2;
 const FRONT_Z = CELL_D / 2;
 const SURFACE_Y = CELL_H;             // 지상 높이
-const CORRIDOR_Z = 1.35;              // 손님이 걸어다니는 앞쪽 복도
+export const CORRIDOR_Z = 1.35;       // 손님이 걸어다니는 앞쪽 복도
 const LADDER_Z = 0.9;                 // 사다리 앞(손님이 오르내리는 곳)
 export const SHAFT_X = LEFT + SHAFT_W / 2;
 
@@ -41,10 +42,14 @@ const cells = {};                     // '층,칸' → { hit, tile, room, sign }
 const floors = [];                    // 층별 { cover, lights, flames }
 const roomAnimations = new Set();     // 움직이는 방 모델들
 const guestMeshes = new Map();        // 손님 id → 3D 모델
+const staffMeshes = new Map();        // 직원 id → 3D 모델
+let heroMesh = null;                  // 습격 중인 용사
+let heroLight = null;                 // 용사를 따라다니는 금빛 조명
 const effects = [];                   // 동전, 떠오르는 글자 등
 let boss = null;
 const surfaceFlames = [];             // 지상 입구 횃불 불꽃
 let hoveredKey = null;
+let lastNow = 0;
 let elapsed = 0;
 
 const key = (f, c) => `${f},${c}`;
@@ -129,6 +134,9 @@ function buildLights() {
   const moon = new THREE.DirectionalLight(0xc8b8ff, 1.3);
   moon.position.set(6, 14, 20);
   scene.add(moon);
+  // 용사 조명은 미리 만들어 두고 평소엔 꺼 둔다 (조명 수가 바뀌면 화면이 잠깐 멈추기 때문)
+  heroLight = new THREE.PointLight(0xffe08a, 0, 8, 1.2);
+  scene.add(heroLight);
 }
 
 /* ---------------- 던전 본체 ---------------- */
@@ -165,7 +173,8 @@ function buildDungeon() {
 
   for (let f = 0; f < CONFIG.FLOORS; f++) {
     const y = floorY(f);
-    const floorInfo = { lights: [], flames: [], cover: null, label: null };
+    // lightLevel: 0(꺼짐)~1(켜짐), unlockAnim: 해금 연출 진행 시간(초), 없으면 null
+    const floorInfo = { lights: [], flames: [], cover: null, coverMat: null, lightLevel: 1, unlockAnim: null };
     floors.push(floorInfo);
 
     // 방 칸마다: 바닥 타일 + 클릭 판정 상자
@@ -181,7 +190,21 @@ function buildDungeon() {
       hit.userData = { floor: f, col: c };
       scene.add(hit);
       hitBoxes.push(hit);
-      cells[key(f, c)] = { hit, tile, room: null, sign: null };
+      // 바닥 얼룩 (더러워지면 하나씩 보인다)
+      const stains = [];
+      for (let i = 0; i < 6; i++) {
+        const stain = new THREE.Mesh(
+          new THREE.CircleGeometry(0.22 + Math.random() * 0.25, 10),
+          new THREE.MeshStandardMaterial({ color: i % 2 ? 0x4a3a1a : 0x3a5a1a, transparent: true, opacity: 0.85, roughness: 1, depthWrite: false }),
+        );
+        stain.rotation.x = -Math.PI / 2;
+        stain.scale.set(1, 0.6 + Math.random() * 0.6, 1);
+        stain.position.set(x - 1.5 + Math.random() * 3, y + 0.035 + i * 0.002, -1.4 + Math.random() * 2.4);
+        stain.visible = false;
+        scene.add(stain);
+        stains.push(stain);
+      }
+      cells[key(f, c)] = { hit, tile, room: null, sign: null, stains, extra: null };
     }
 
     // 입구/사다리 통로 칸의 클릭 판정
@@ -233,16 +256,16 @@ function buildDungeon() {
 
     // 잠긴 층 덮개: 어두운 바위 덩어리 + 자물쇠
     const cover = new THREE.Group();
-    const coverBox = new THREE.Mesh(
-      new THREE.BoxGeometry(TOTAL_W - 0.05, CELL_H - SLAB, CELL_D - 0.05),
-      new THREE.MeshStandardMaterial({ color: 0x0b0714, transparent: true, opacity: 0.88, roughness: 1 }),
-    );
+    const coverMat = new THREE.MeshStandardMaterial({ color: 0x0b0714, transparent: true, opacity: 0.88, roughness: 1 });
+    const coverBox = new THREE.Mesh(new THREE.BoxGeometry(TOTAL_W - 0.05, CELL_H - SLAB, CELL_D - 0.05), coverMat);
+    floorInfo.coverMat = coverMat;
     coverBox.position.set(0, y + (CELL_H - SLAB) / 2, 0);
     cover.add(coverBox);
     const lock = makeEmojiSprite('🔒', 1.0);
     lock.position.set(0, y + 1.75, FRONT_Z + 0.3);
     cover.add(lock);
-    const lockText = makeTextSprite(`지하 ${f + 1}층 · 잠김`, { color: '#a597c4', height: 0.45 });
+    const cost = CONFIG.FLOOR_UNLOCK_COST[f] || 0;
+    const lockText = makeTextSprite(`지하 ${f + 1}층 · ${cost.toLocaleString()}골드로 열기`, { color: '#ffd257', height: 0.45 });
     lockText.position.set(0, y + 0.85, FRONT_Z + 0.3);
     cover.add(lockText);
     cover.visible = false;
@@ -374,9 +397,30 @@ function buildSurface() {
 // 층 잠금 표시 켜기/끄기 (잠긴 층은 어둡게 + 횃불 꺼짐)
 export function setFloorLocked(f, locked) {
   const info = floors[f];
+  info.unlockAnim = null;
   info.cover.visible = locked;
-  info.lights.forEach((l) => (l.visible = !locked));
+  info.coverMat.opacity = 0.88;
+  info.lightLevel = locked ? 0 : 1;
   info.flames.forEach((fl) => (fl.visible = !locked));
+}
+
+// 2-1. 층이 열릴 때: 어둠이 걷히고 횃불이 하나씩 켜지는 연출
+const UNLOCK_ANIM_SECONDS = 2.2;
+export function playFloorUnlock(f) {
+  floors[f].unlockAnim = 0;
+}
+function updateFloorUnlock(info, realDt) {
+  if (info.unlockAnim === null) return;
+  info.unlockAnim += realDt;
+  const p = Math.min(1, info.unlockAnim / UNLOCK_ANIM_SECONDS);
+  info.coverMat.opacity = 0.88 * (1 - p);                       // 덮개가 서서히 투명하게
+  info.cover.children.forEach((ch) => { if (ch.isSprite) ch.material.opacity = 1 - p; });
+  info.lightLevel = p * p;                                     // 조명은 천천히 밝아짐
+  info.flames.forEach((fl, i) => { fl.visible = p > (i + 1) / (info.flames.length + 1); });   // 횃불이 차례로 켜짐
+  if (p >= 1) {
+    info.cover.visible = false;
+    info.unlockAnim = null;
+  }
 }
 
 // 칸에 방 모델 놓기 / 치우기 (typeKey가 null이면 치움)
@@ -393,6 +437,12 @@ export function setRoomModel(f, c, typeKey, roomInfo) {
     disposeObject(cell.sign);
     cell.sign = null;
   }
+  cell.extraKey = null;          // 새 모델에 상태 표시를 다시 적용하도록
+  if (cell.extra) {
+    scene.remove(cell.extra);
+    disposeObject(cell.extra);
+    cell.extra = null;
+  }
   if (!typeKey) return;
   const model = buildRoomModel(typeKey);
   model.position.set(roomCenterX(c), floorY(f), 0);
@@ -404,6 +454,54 @@ export function setRoomModel(f, c, typeKey, roomInfo) {
   sign.position.set(roomCenterX(c), floorY(f) + 1.95, BACK_Z + 0.45);
   scene.add(sign);
   cell.sign = sign;
+}
+
+// 방 상태 표시: 더러움 얼룩 / 함정 진짜 모드 / 망가짐
+export function setRoomState(f, c, room) {
+  const cell = cells[key(f, c)];
+  const dirt = room ? room.dirt || 0 : 0;
+  const show = dirt < CONFIG.DIRT_VISIBLE_FROM ? 0 : Math.ceil((dirt / 100) * cell.stains.length);
+  cell.stains.forEach((s, i) => { s.visible = i < show; });
+
+  const realMode = !!(room && room.realMode);
+  const broken = !!(room && room.broken);
+  const stateKey = `${realMode}|${broken}`;
+  if (cell.extraKey === stateKey) return;            // 바뀐 게 없으면 다시 만들지 않음
+  cell.extraKey = stateKey;
+  if (cell.room && cell.room.userData.setRealMode) cell.room.userData.setRealMode(realMode);
+  if (cell.extra) {
+    scene.remove(cell.extra);
+    disposeObject(cell.extra);
+    cell.extra = null;
+  }
+  if (!realMode && !broken) return;
+  const extra = new THREE.Group();
+  extra.position.set(roomCenterX(c), floorY(f), 0);
+  if (realMode) {
+    const warn = makeTextSprite('⚠️ 진짜 모드', { color: '#ffdddd', bg: 'rgba(120,10,10,0.85)', border: '#ff4a4a', height: 0.36 });
+    warn.position.set(0, 1.5, BACK_Z + 0.6);
+    extra.add(warn);
+  }
+  if (broken) {
+    // 망가진 방: 어두운 연기 막 + 돌무더기 + 표지
+    const smoke = new THREE.Mesh(
+      new THREE.BoxGeometry(CELL_W - 0.3, CELL_H - SLAB - 0.1, CELL_D - 0.3),
+      new THREE.MeshBasicMaterial({ color: 0x050308, transparent: true, opacity: 0.55, depthWrite: false }),
+    );
+    smoke.position.y = (CELL_H - SLAB) / 2;
+    extra.add(smoke);
+    const rubble = new THREE.MeshStandardMaterial({ color: 0x4a4050, flatShading: true });
+    for (let i = 0; i < 6; i++) {
+      const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.2 + Math.random() * 0.25), rubble);
+      r.position.set(-1.3 + Math.random() * 2.6, 0.15, -0.8 + Math.random() * 1.4);
+      extra.add(r);
+    }
+    const label = makeTextSprite('💥 망가짐 · 클릭해서 수리', { color: '#ffd2d2', bg: 'rgba(40,10,15,0.9)', border: '#ff6b6b', height: 0.34 });
+    label.position.set(0, 1.25, 1.0);
+    extra.add(label);
+  }
+  scene.add(extra);
+  cell.extra = extra;
 }
 
 // 마우스 위치의 칸 찾기 → { floor, col } (col -1 = 통로) 또는 null
@@ -470,11 +568,117 @@ export function pathAngryVisit() {
   ];
 }
 
+// 높이(y)로 몇 층인지 (-1 = 지상)
+export function floorOfY(y) {
+  return y > CELL_H * 0.5 ? -1 : Math.round(-y / CELL_H);
+}
+
+/* 직원/용사용 범용 경로: 지금 위치 → (사다리로 층 이동) → 목표 층의 x, z
+   toFloor가 -1이면 지상으로 나가서 바깥(spawnPoint)까지 */
+export function walkPath(from, toFloor, toX, toZ = CORRIDOR_Z) {
+  const pts = [];
+  const fromFloor = floorOfY(from.y);
+  if (fromFloor === toFloor && toFloor >= 0) {
+    pts.push({ x: from.x, y: floorY(toFloor), z: CORRIDOR_Z });
+  } else {
+    // 사다리로 이동
+    if (fromFloor === -1) {
+      pts.push({ x: SHAFT_X, y: SURFACE_Y, z: LADDER_Z });
+    } else {
+      pts.push({ x: from.x, y: floorY(fromFloor), z: CORRIDOR_Z });
+      pts.push({ x: SHAFT_X + 0.6, y: floorY(fromFloor), z: CORRIDOR_Z });
+      pts.push({ x: SHAFT_X, y: floorY(fromFloor), z: LADDER_Z });
+    }
+    if (toFloor === -1) {
+      pts.push({ x: SHAFT_X, y: SURFACE_Y, z: LADDER_Z });
+      pts.push(spawnPoint());
+      return pts;
+    }
+    pts.push({ x: SHAFT_X, y: floorY(toFloor), z: LADDER_Z });
+    pts.push({ x: SHAFT_X + 0.6, y: floorY(toFloor), z: CORRIDOR_Z });
+  }
+  pts.push({ x: toX, y: floorY(toFloor), z: CORRIDOR_Z });
+  if (toZ !== CORRIDOR_Z) pts.push({ x: toX, y: floorY(toFloor), z: toZ });
+  return pts;
+}
+
+/* ---------------- 직원 3D 모델 ---------------- */
+export function addStaffMesh(member, outfit) {
+  const model = createStaffGoblin(member.role, outfit);
+  model.position.set(member.pos.x, member.pos.y, member.pos.z);
+  scene.add(model);
+  staffMeshes.set(member.id, model);
+}
+export function updateStaffMesh(member, walking, working) {
+  const model = staffMeshes.get(member.id);
+  if (!model) return;
+  model.position.set(member.pos.x, member.pos.y, member.pos.z);
+  model.rotation.y = member.facing ?? 0;
+  if (walking) model.position.y += Math.abs(Math.sin(elapsed * 12)) * 0.05;
+  animateCharacter(model, elapsed + member.id * 1.7, walking);
+  // 일하는 중: 팔을 크게 휘두른다 (걸레질 / 휘젓기 / 창 들기)
+  if (working) model.userData.parts.armR.rotation.x = -0.6 + Math.sin(elapsed * 9) * 0.6;
+}
+export function removeStaffMesh(id) {
+  const model = staffMeshes.get(id);
+  if (!model) return;
+  scene.remove(model);
+  disposeObject(model);
+  staffMeshes.delete(id);
+}
+
+/* ---------------- 용사 3D 모델 (2-3) ---------------- */
+export function showHero(hero) {
+  if (!heroMesh) {
+    heroMesh = createHero();
+    const mood = makeEmojiSprite('😤', 0.6);
+    mood.position.y = 2.05;
+    heroMesh.add(mood);
+    heroMesh.userData.mood = mood;
+    scene.add(heroMesh);
+  }
+  heroMesh.position.set(hero.pos.x, hero.pos.y, hero.pos.z);
+  heroMesh.rotation.y = hero.facing ?? 0;
+  const walking = hero.path && hero.path.length > 0;
+  if (walking) heroMesh.position.y += Math.abs(Math.sin(elapsed * 11)) * 0.07;
+  animateCharacter(heroMesh, elapsed, walking);
+  if (hero.fighting) heroMesh.userData.parts.armR.rotation.x = -1.2 + Math.sin(elapsed * 14) * 1.0;
+  const mood = heroMesh.userData.mood;
+  if (mood.userData.emoji !== hero.emoji) {
+    mood.material.map = emojiTexture(hero.emoji || '😤');
+    mood.material.needsUpdate = true;
+    mood.userData.emoji = hero.emoji;
+  }
+  heroMesh.userData.halo.rotation.z = elapsed * 2;
+  heroLight.intensity = 10;
+  heroLight.position.set(hero.pos.x, hero.pos.y + 1.6, hero.pos.z + 0.8);
+}
+export function hideHero() {
+  if (heroMesh) {
+    scene.remove(heroMesh);
+    disposeObject(heroMesh);
+    heroMesh = null;
+  }
+  if (heroLight) heroLight.intensity = 0;
+}
+
+// 화면 전체가 흔들리는 효과 (습격 결과 등)
+let shakeTime = 0;
+export function shakeCamera(seconds = 0.5) {
+  shakeTime = seconds;
+}
+
 /* ---------------- 손님 3D 모델 ---------------- */
 export function addGuestMesh(guest) {
   const gt = GUEST_TYPES[guest.type];
   const model = createAdventurer(guest.type, gt.color);
-  model.scale.setScalar(guest.vip ? 1.1 : 1);
+  model.scale.setScalar(guest.scale || 1);   // 고급 손님은 살짝 크게
+  if (guest.badge) {
+    // 고급/귀족 손님 표시 (💎, 👑)
+    const badge = makeEmojiSprite(guest.badge, 0.4);
+    badge.position.set(0.32, 1.75, 0);
+    model.add(badge);
+  }
   const mood = makeEmojiSprite('😐', 0.75);
   mood.position.y = 2.05;
   model.add(mood);
@@ -585,8 +789,11 @@ export function renderFrame(dt) {
   for (const room of roomAnimations) room.userData.update(elapsed, dt);
   // 횃불 깜빡임 (실제 시간 기준이라 일시정지 중에도 일렁인다)
   const now = performance.now() / 1000;
+  const realDt = lastNow ? Math.min(0.1, now - lastNow) : 0;
+  lastNow = now;
   for (const info of floors) {
-    for (const l of info.lights) l.intensity = GRAPHICS.TORCH_INTENSITY * (0.85 + Math.sin(now * 7 + l.userData.phase) * 0.08 + Math.random() * 0.07);
+    updateFloorUnlock(info, realDt);
+    for (const l of info.lights) l.intensity = info.lightLevel * GRAPHICS.TORCH_INTENSITY * (0.85 + Math.sin(now * 7 + l.userData.phase) * 0.08 + Math.random() * 0.07);
     for (const fl of info.flames) fl.scale.set(1, 1 + Math.sin(now * 13 + fl.userData.phase) * 0.2, 1);
   }
   for (const fl of surfaceFlames) fl.scale.set(1, 1 + Math.sin(now * 13 + fl.userData.phase) * 0.2, 1);
@@ -603,7 +810,15 @@ export function renderFrame(dt) {
   const dist = camera.position.distanceTo(controls.target);
   scene.fog.near = dist + 8;
   scene.fog.far = dist + 50;
+  // 화면 흔들림: 그리는 순간에만 카메라를 살짝 옮겼다가 되돌린다
+  const shake = new THREE.Vector3();
+  if (shakeTime > 0) {
+    shakeTime -= realDt;
+    shake.set((Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.4, 0);
+  }
+  camera.position.add(shake);
   renderer.render(scene, camera);
+  camera.position.sub(shake);
 }
 
 // 테스트용: 칸 가운데의 화면 좌표

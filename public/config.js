@@ -10,6 +10,8 @@ export const CONFIG = {
   COLS: 4,                    // 층당 방 칸 수 (가로)
   FLOORS: 3,                  // 전체 층 수 (세로)
   START_UNLOCKED_FLOORS: 1,   // 처음에 열려 있는 층 수
+  // 층 해금 비용 [지하1층, 지하2층, 지하3층] (지하1층은 처음부터 열림)
+  FLOOR_UNLOCK_COST: [0, 1000, 3000],
   DEMOLISH_REFUND: 0.5,       // 철거 시 환불 비율 (0.5 = 절반)
 
   // ---- 시간 ----
@@ -43,6 +45,53 @@ export const CONFIG = {
   START_STARS: 3,             // 아직 평가가 없을 때 별점
   // 평가가 적을 때 별점이 확 튀지 않도록, 모자란 인원의 절반만큼 '기본 별점 손님'이 있다고 친다
   RATING_PRIOR_RATIO: 0.5,
+
+  // ---- 청결 (2-2) ----
+  DIRT_PER_SECOND_STAY: 2.2,  // 손님이 묵는 동안 초당 더러워지는 정도 (1박 ≈ +33)
+  DIRT_PER_SECOND_IDLE: 0.08, // 빈 방도 아주 천천히 먼지가 쌓인다
+  DIRT_SAT_PENALTY: 0.4,      // 더러움 1당 목표 만족도 감소 (더러움 100 → -40)
+  DIRT_VISIBLE_FROM: 12,      // 이 이상 더러우면 바닥에 얼룩이 보인다
+  CLEAN_SPEED: 30,            // 청소 고블린이 초당 치우는 양
+  CLEAN_START_DIRT: 15,       // 이 이상 더러운 방부터 청소하러 간다
+
+  // ---- 직원 (2-2) ----
+  STAFF_MAX_PER_TYPE: 4,      // 종류별 최대 고용 인원
+  STAFF_WALK_SPEED: 3,        // 직원 걷는 속도
+  COOK_BONUS_PER_GUEST: 10,   // 요리 고블린 1명당 식당 손님 1명 추가 수익
+  COOKS_PER_RESTAURANT: 2,    // 식당 1개당 효과를 내는 요리사 최대 인원
+
+  // ---- 용사 습격 (2-3) ----
+  RAID_START_DAY: 3,          // 이 날부터 습격이 올 수 있다
+  RAID_CHANCE_PER_DAY: 0.4,   // 하루가 시작될 때 습격이 올 확률
+  RAID_WARNING_SECONDS: 15,   // 경고 후 용사가 도착하기까지(초)
+  HERO_WALK_SPEED: 3.2,       // 용사 걷는 속도
+  RAID_BASE_DEFENSE: 0.15,    // 아무 준비 없을 때 방어 성공 확률
+  RAID_TRAP_BONUS: 0.2,       // '진짜 모드' 함정 1개당 방어 확률 +
+  RAID_GUARD_BONUS: 0.15,     // 경비 고블린 1명당 방어 확률 +
+  RAID_MAX_DEFENSE: 0.95,     // 방어 확률 최대치
+  RAID_REWARD_BASE: 150,      // 방어 성공 보상 = 기본 + 날짜 × 일당
+  RAID_REWARD_PER_DAY: 20,
+  RAID_STEAL_RATIO: 0.25,     // 방어 실패 시 빼앗기는 골드 비율
+  RAID_STEAL_MIN: 100,        // 방어 실패 시 최소 빼앗기는 골드
+  REAL_MODE_SAT_PENALTY: 50,  // 진짜 모드 함정에 묵는 일반 손님의 목표 만족도 감소
+  REPAIR_COST_RATIO: 0.5,     // 망가진 방 수리비 = 설치비 × 비율
+};
+
+/* ---------------- 층별 손님 등급 (2-1) ----------------
+   아래층일수록 고급 손님: 돈을 더 많이 내지만 만족시키기 어렵다
+   incomeMul: 숙박비 배수, tipMul: 팁 배수, satPenalty: 목표 만족도 감소 */
+export const GUEST_TIERS = [
+  { name: '일반', badge: '',   incomeMul: 1.0, tipMul: 1.0, satPenalty: 0,  scale: 1.0 },
+  { name: '고급', badge: '💎', incomeMul: 1.7, tipMul: 1.8, satPenalty: 10, scale: 1.08 },
+  { name: '귀족', badge: '👑', incomeMul: 2.6, tipMul: 2.6, satPenalty: 20, scale: 1.16 },
+];
+
+/* ---------------- 직원 종류 (2-2) ----------------
+   hireCost: 고용할 때 한 번 내는 돈, salary: 하루마다 나가는 월급 */
+export const STAFF_TYPES = {
+  cleaner: { name: '청소 고블린', emoji: '🧹', hireCost: 80,  salary: 25, outfit: 0x2a6ad0, desc: '더러운 방을 찾아가 청소해요' },
+  cook:    { name: '요리 고블린', emoji: '🍳', hireCost: 120, salary: 35, outfit: 0xf0f0f0, desc: '식당 손님당 수익 +10G' },
+  guard:   { name: '경비 고블린', emoji: '🛡️', hireCost: 150, salary: 40, outfit: 0x5a5a6e, desc: '용사 습격 방어 확률 +15%' },
 };
 
 // ---------------- 3D 배치 크기 ----------------
@@ -86,6 +135,7 @@ export const ROOM_TYPES = {
   boulder: {
     name: '굴러오는 바위 어트랙션', emoji: '🪨', color: '#a8a39a',
     cost: 300, income: 30, comfort: 0, thrill: 3, lodging: true,
+    trap: true,   // 용사 습격 때 '진짜 모드'로 바꿀 수 있는 함정
   },
   restaurant: {
     name: '고블린 식당', emoji: '🍲', color: '#d9b04a',
